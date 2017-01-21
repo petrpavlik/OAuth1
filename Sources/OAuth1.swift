@@ -7,10 +7,20 @@
 import Foundation
 import Cryptor
 
+fileprivate extension String {
+    func stringByAddingPercentEncodingForRFC3986() -> String? {
+        //let unreserved = "-._~/?"
+        //let unreserved = "-._~?"
+        let unreserved = "-._~?"
+        let allowed = NSMutableCharacterSet.alphanumeric()
+        allowed.addCharacters(in: unreserved)
+        return self.addingPercentEncoding(withAllowedCharacters: allowed as CharacterSet)
+    }
+}
 
-struct OAuth1 {
+public struct OAuth1 {
 
-    enum Method: String {
+    public enum Method: String {
         case get = "GET"
         case post = "POST"
     }
@@ -21,55 +31,52 @@ struct OAuth1 {
     let tokenSecret: String
     private let nonceChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     
-    init(consumerKey: String, consumerSecret: String, token: String, tokenSecret: String) {
+    public init(consumerKey: String, consumerSecret: String, token: String, tokenSecret: String) {
         self.consumerKey = consumerKey
         self.consumerSecret = consumerSecret
         self.token = token
         self.tokenSecret = tokenSecret
     }
     
-    func generateHeaders(url: String, method: Method) -> [String : String] {
+    public func generateHeaders(url: String, params queryParams: [String:String], method: Method) -> String {
         // 1
         let nonce = generateNonce()
-        let timestamp = "\(Date().timeIntervalSince1970)"
+        let timestamp = "\(Int64(Date().timeIntervalSince1970.rounded()))"
         
-        // 2
-        var paramArray: [String] = [
-            "oauth_consumer_key",
-            consumerKey,
-            "oauth_nonce",
-            nonce,
-            "oauth_signature_method",
-            "HMAC-SHA1",
-            "oauth_timestamp",
-            timestamp
+        var params:[String:String] = [
+            "oauth_consumer_key": consumerKey,
+            "oauth_nonce": nonce,
+            "oauth_signature_method": "HMAC-SHA1",
+            "oauth_timestamp": timestamp,
+            "oauth_token": token,
+            "oauth_version": "1.0"
         ]
-        for index in 0..<paramArray.count {
-            paramArray[index] = percentEncode(paramArray[index])
+        
+        queryParams.forEach { (param) in
+            params[param.key] = percentEncode(param.value)
         }
-        var paramString = "\(paramArray[0])=\(paramArray[1])&\(paramArray[2])=\(paramArray[3])&\(paramArray[4])=\(paramArray[5])&\(paramArray[6])=\(paramArray[7])"
-        paramString = percentEncode(paramString)
+        
+        let sortedParams = params.sorted(by: <)
+        
+        let paramString = (sortedParams.flatMap({ (key, value) -> String in
+            return "\(key)=\(value)"
+        }) as Array).joined(separator: "&")
+        
+        
         
         // 3
-        let signatureBase = "\(method.rawValue)&\(url)&\(paramString)"
+        let signatureBase = "\(method.rawValue)&\(percentEncode(url))&\(percentEncode(paramString))"
         
         // 4
-        let key = CryptoUtils.byteArray(fromHex: consumerSecret)
-        let data = CryptoUtils.byteArray(fromHex: signatureBase)
-        let hmac = HMAC(using: HMAC.Algorithm.sha1, key: key).update(byteArray: data)?.final()
-        let signature = String(bytes: hmac!, encoding: String.Encoding.utf8)!
+        let key = CryptoUtils.byteArray(from: "\(percentEncode(consumerSecret))&\(percentEncode(tokenSecret))")
+        let data = CryptoUtils.byteArray(from: signatureBase)
+        let hmac = HMAC(using: HMAC.Algorithm.sha1, key: key).update(byteArray: data)!.final()
+        
+        let signature:String = Data(hmac).base64EncodedString()
 
+        let oauthHeader = "OAuth oauth_consumer_key=\"\(params["oauth_consumer_key"]!)\", oauth_nonce=\"\(params["oauth_nonce"]!)\", oauth_signature=\"\(percentEncode(signature))\", oauth_signature_method=\"HMAC-SHA1\", oauth_timestamp=\"\(params["oauth_timestamp"]!)\", oauth_token=\"\(params["oauth_token"]!)\", oauth_version=\"1.0\""
         
-        let headers: [String : String] = [
-            "oauth_consumer_key" : consumerKey,
-            "oauth_token" : token,
-            "oauth_signature_method" : "HMAC-SHA1",
-            "oauth_signature" : signature,
-            "oauth_timestamp" : timestamp,
-            "oauth_nonce" : nonce
-        ]
-        
-        return headers
+        return oauthHeader
     }
     
     
@@ -86,11 +93,7 @@ struct OAuth1 {
     }
     
     private func percentEncode(_ str: String) -> String {
-        #if os(Linux)
-            return str.bridge().stringByAddingPercentEncodingWithAllowedCharacters(NSCharacterSet.urlQueryAllowed) ?? str
-        #else
-            return str.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? str
-        #endif
+        return str.stringByAddingPercentEncodingForRFC3986()!
     }
     
 
