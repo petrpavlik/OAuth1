@@ -9,12 +9,10 @@ import Cryptor
 
 fileprivate extension String {
     func stringByAddingPercentEncodingForRFC3986() -> String? {
-        //let unreserved = "-._~/?"
-        //let unreserved = "-._~?"
         let unreserved = "-._~?"
-        let allowed = NSMutableCharacterSet.alphanumeric()
-        allowed.addCharacters(in: unreserved)
-        return self.addingPercentEncoding(withAllowedCharacters: allowed as CharacterSet)
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: unreserved)
+        return self.addingPercentEncoding(withAllowedCharacters: allowed)
     }
 }
 
@@ -86,8 +84,13 @@ public struct OAuth1 {
     private func generateNonce() -> String {
         var nonce = ""
         for _ in 0..<32 {
-            let rand = Int(arc4random_uniform(62))
-            nonce += String(nonceChars[nonceChars.index(nonceChars.startIndex, offsetBy: rand)])
+            #if os(Linux)
+                let rand = Int(random() % (62 + 1))
+                nonce += String(nonceChars[nonceChars.index(nonceChars.startIndex, offsetBy: rand)])
+            #else
+                let rand = Int(arc4random_uniform(62))
+                nonce += String(nonceChars[nonceChars.index(nonceChars.startIndex, offsetBy: rand)])
+            #endif
         }
         return nonce
     }
